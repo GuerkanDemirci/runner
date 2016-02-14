@@ -1,0 +1,1328 @@
+<body style="margin:0;background-color: black">
+<canvas id="view" style="height:100%;width:100%;"></canvas>
+<script type="text/javascript">
+
+// -------------------
+//
+// Math
+//
+// -------------------
+MathUtils = {
+	degToRad: function () {
+		var degreeToRadiansFactor = Math.PI / 180;
+		return function ( degrees ) {
+			return degrees * degreeToRadiansFactor;
+		};
+	}(),
+};
+// -------------------
+//
+// Matrix4
+//
+// -------------------
+Matrix4 = function () {
+	this.elements = new Float32Array( [
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1
+	] );
+};
+
+Matrix4.prototype = {
+	constructor: Matrix4,
+	set: function ( n11, n12, n13, n14, n21, n22, n23, n24, n31, n32, n33, n34, n41, n42, n43, n44 ) {
+		var te = this.elements;
+		te[ 0 ] = n11; te[ 4 ] = n12; te[ 8 ] = n13; te[ 12 ] = n14;
+		te[ 1 ] = n21; te[ 5 ] = n22; te[ 9 ] = n23; te[ 13 ] = n24;
+		te[ 2 ] = n31; te[ 6 ] = n32; te[ 10 ] = n33; te[ 14 ] = n34;
+		te[ 3 ] = n41; te[ 7 ] = n42; te[ 11 ] = n43; te[ 15 ] = n44;
+		return this;
+	},
+	transpose: function () {
+		var te = this.elements;
+		var tmp;
+		tmp = te[ 1 ]; te[ 1 ] = te[ 4 ]; te[ 4 ] = tmp;
+		tmp = te[ 2 ]; te[ 2 ] = te[ 8 ]; te[ 8 ] = tmp;
+		tmp = te[ 6 ]; te[ 6 ] = te[ 9 ]; te[ 9 ] = tmp;
+		tmp = te[ 3 ]; te[ 3 ] = te[ 12 ]; te[ 12 ] = tmp;
+		tmp = te[ 7 ]; te[ 7 ] = te[ 13 ]; te[ 13 ] = tmp;
+		tmp = te[ 11 ]; te[ 11 ] = te[ 14 ]; te[ 14 ] = tmp;
+		return this;
+	},
+	makeScale: function ( x, y, z ) {
+		this.set(
+			x, 0, 0, 0,
+			0, y, 0, 0,
+			0, 0, z, 0,
+			0, 0, 0, 1
+		);
+		return this;
+	},
+    multiply: function(a, b)
+    {
+		var ae = a.elements;
+		var be = b.elements;
+		var te = this.elements;
+		var i = 0;
+        do {
+            te[i*4+0] = ae[i*4] * be[0] + ae[i*4+1] * be[4] + ae[i*4+2] * be[8] + ae[i*4+3] * be[12];
+            te[i*4+1] = ae[i*4] * be[1] + ae[i*4+1] * be[5] + ae[i*4+2] * be[9] + ae[i*4+3] * be[13];
+            te[i*4+2] = ae[i*4] * be[2] + ae[i*4+1] * be[6] + ae[i*4+2] * be[10] + ae[i*4+3] * be[14];
+            te[i*4+3] = ae[i*4] * be[3] + ae[i*4+1] * be[7] + ae[i*4+2] * be[11] + ae[i*4+3] * be[15];
+        } while((++i) < 4);
+        return this;
+    },
+	makeLookAtRH: function() {
+
+		var x, y, z;
+
+		return function(eye, at, up) {
+			
+			if ( x === undefined ) x = new Vector3();
+			if ( y === undefined ) y = new Vector3();
+			if ( z === undefined ) z = new Vector3();
+			
+			var te = this.elements;
+
+			z.subVectors( eye, at ).normalize(); // forward
+			x.crossVectors( up, z ).normalize(); // right
+			y.crossVectors( z, x );
+			
+			te[ 0 ] = x.x; te[ 1 ] = x.y; te[ 2 ] = x.z; te[ 3 ] = -(x.dot(eye));
+			te[ 4 ] = y.x; te[ 5 ] = y.y; te[ 6 ] = y.z; te[ 7 ] = -(y.dot(eye));
+			te[ 8 ] = z.x; te[ 9 ] = z.y; te[ 10] = z.z; te[ 11] = -(z.dot(eye));
+			te[ 12] = 0.0; te[ 13] = 0.0; te[ 14] = 0.0; te[ 15] = 1.0;
+			
+			return this;
+		};
+	}(),
+	makePerspectiveRH: function (fov, aspect, znear, zfar) {
+
+		var te = this.elements;
+
+		var tanHalfFov = Math.tan( MathUtils.degToRad( fov * 0.5) );
+
+        te[0*4+0] = 1.0 / (aspect * tanHalfFov);
+		te[0*4+1] = 0.0;
+		te[0*4+2] = 0.0;
+		te[0*4+3] = 0.0;
+
+		te[1*4+0] = 0.0;
+        te[1*4+1] = 1.0 / tanHalfFov;
+		te[1*4+2] = 0.0;
+		te[1*4+3] = 0.0;
+		
+		te[2*4+0] = 0.0;
+		te[2*4+1] = 0.0;
+        te[2*4+2] = zfar / (znear - zfar);
+        te[2*4+3] = (zfar * znear) / (znear - zfar);
+		
+		te[3*4+0] = 0.0;
+		te[3*4+1] = 0.0;
+        te[3*4+2] = -1.0;
+        te[3*4+3] = 1.0;
+		
+		return this;
+	},
+};
+// -------------------
+//
+// Vector3
+//
+// -------------------
+Vector3 = function ( x, y, z ) {
+	this.x = x || 0;
+	this.y = y || 0;
+	this.z = z || 0;
+};
+
+Vector3.prototype = {
+	constructor: Vector3,
+	equals: function ( v ) {
+		return ( ( v.x === this.x ) && ( v.y === this.y ) && ( v.z === this.z ) );
+	},
+	set: function ( x, y, z ) {
+		this.x = x;
+		this.y = y;
+		this.z = z;
+		return this;
+	},
+	copy: function ( v ) {
+		this.x = v.x;
+		this.y = v.y;
+		this.z = v.z;
+		return this;
+	},
+	subVectors: function ( a, b ) {
+		this.x = a.x - b.x;
+		this.y = a.y - b.y;
+		this.z = a.z - b.z;
+		return this;
+	},
+	add: function ( v, w ) {
+		this.x += v.x;
+		this.y += v.y;
+		this.z += v.z;
+		return this;
+	},
+	sub: function ( v, w ) {
+		this.x -= v.x;
+		this.y -= v.y;
+		this.z -= v.z;
+		return this;
+	},
+	multiplyScalar: function ( scalar ) {
+		if ( isFinite( scalar ) ) {
+			this.x *= scalar;
+			this.y *= scalar;
+			this.z *= scalar;
+		} else {
+			this.x = 0;
+			this.y = 0;
+			this.z = 0;
+		}
+		return this;
+	},
+	divideScalar: function ( scalar ) {
+		return this.multiplyScalar( 1 / scalar );
+	},
+	length: function () {
+		return Math.sqrt( this.x * this.x + this.y * this.y + this.z * this.z );
+	},
+	normalize: function () {
+		return this.divideScalar( this.length() );
+	},
+	dot: function ( v ) {
+		return this.x * v.x + this.y * v.y + this.z * v.z;
+	},
+	crossVectors: function ( a, b ) {
+		var ax = a.x, ay = a.y, az = a.z;
+		var bx = b.x, by = b.y, bz = b.z;
+		this.x = ay * bz - az * by;
+		this.y = az * bx - ax * bz;
+		this.z = ax * by - ay * bx;
+		return this;
+	},
+	applyQuaternion: function ( q ) {
+		var x = this.x;
+		var y = this.y;
+		var z = this.z;
+		var qx = q._x;
+		var qy = q._y;
+		var qz = q._z;
+		var qw = q._w;
+		// calculate quat * vector
+		var ix =  qw * x + qy * z - qz * y;
+		var iy =  qw * y + qz * x - qx * z;
+		var iz =  qw * z + qx * y - qy * x;
+		var iw = - qx * x - qy * y - qz * z;
+		// calculate result * inverse quat
+		this.x = ix * qw + iw * - qx + iy * - qz - iz * - qy;
+		this.y = iy * qw + iw * - qy + iz * - qx - ix * - qz;
+		this.z = iz * qw + iw * - qz + ix * - qy - iy * - qx;
+		return this;
+	},
+};
+// -------------------
+//
+// Vector2
+//
+// -------------------
+Vector2 = function ( x, y ) {
+
+	this.x = x || 0;
+	this.y = y || 0;
+};
+
+Vector2.prototype = {
+	constructor: Vector2,
+	clone: function () {
+		return new this.constructor( this.x, this.y );
+	},
+	copy: function ( v ) {
+		this.x = v.x;
+		this.y = v.y;
+		return this;
+	},
+	set: function ( x, y ) {
+		this.x = x;
+		this.y = y;
+		return this;
+	},
+	add: function ( v, w ) {
+		this.x += v.x;
+		this.y += v.y;
+		return this;
+	},
+	subVectors: function ( a, b ) {
+		this.x = a.x - b.x;
+		this.y = a.y - b.y;
+		return this;
+	},
+	multiplyScalar: function ( scalar ) {
+		if ( isFinite( scalar ) ) {
+			this.x *= scalar;
+			this.y *= scalar;
+		} else {
+			this.x = 0;
+			this.y = 0;
+		}
+		return this;
+	},
+};
+
+// -------------------
+//
+// Quaternion
+//
+// -------------------
+Quaternion = function ( x, y, z, w ) {
+
+	this._x = x || 0;
+	this._y = y || 0;
+	this._z = z || 0;
+	this._w = ( w !== undefined ) ? w : 1;
+
+};
+
+Quaternion.prototype = {
+
+	constructor: Quaternion,
+	clone: function () {
+		return new this.constructor( this._x, this._y, this._z, this._w );
+	},
+	setFromUnitVectors: function () {
+
+		// http://lolengine.net/blog/2014/02/24/quaternion-from-two-vectors-final
+		// assumes direction vectors vFrom and vTo are normalized
+
+		var v1, r;
+		var EPS = 0.000001;
+
+		return function ( vFrom, vTo ) {
+			if ( v1 === undefined ) v1 = new Vector3();
+
+			r = vFrom.dot( vTo ) + 1;
+
+			if ( r < EPS ) {
+				r = 0;
+				if ( Math.abs( vFrom.x ) > Math.abs( vFrom.z ) ) {
+					v1.set( - vFrom.y, vFrom.x, 0 );
+				} else {
+					v1.set( 0, - vFrom.z, vFrom.y );
+				}
+			} else {
+				v1.crossVectors( vFrom, vTo );
+			}
+
+			this._x = v1.x;
+			this._y = v1.y;
+			this._z = v1.z;
+			this._w = r;
+
+			this.normalize();
+
+			return this;
+		}
+	}(),
+	length: function () {
+		return Math.sqrt( this._x * this._x + this._y * this._y + this._z * this._z + this._w * this._w );
+	},
+	normalize: function () {
+		var l = this.length();
+
+		if ( l === 0 ) {
+
+			this._x = 0;
+			this._y = 0;
+			this._z = 0;
+			this._w = 1;
+		} else {
+
+			l = 1 / l;
+
+			this._x = this._x * l;
+			this._y = this._y * l;
+			this._z = this._z * l;
+			this._w = this._w * l;
+		}
+
+		return this;
+	},
+	inverse: function () {
+		this.conjugate().normalize();
+		return this;
+	},
+	conjugate: function () {
+
+		this._x *= - 1;
+		this._y *= - 1;
+		this._z *= - 1;
+
+		return this;
+	},
+};
+	
+// -------------------
+//
+// Plane
+//
+// -------------------
+Plane = function(sizex, sizez) {
+
+	var pos = new Float32Array([-sizex,0.0,-sizez, sizex,0.0,-sizez, -sizex,0.0,sizez, sizex,0.0,-sizez, sizex,0.0,sizez, -sizex,0.0,sizez]);
+	this.buffer_position = _gl.createBuffer();
+	_gl.bindBuffer( _gl.ARRAY_BUFFER, this.buffer_position );
+	_gl.bufferData( _gl.ARRAY_BUFFER, pos, _gl.STATIC_DRAW );
+	_gl.vertexAttribPointer(aPOSITION, 3, _gl.FLOAT, false, 0, 0);
+}
+
+Plane.prototype = {
+	constructor: Plane,
+	
+	draw: function(prg) {
+		
+		_gl.bindBuffer( _gl.ARRAY_BUFFER, this.buffer_position );
+		_gl.vertexAttribPointer(aPOSITION, 3, _gl.FLOAT, false, 0, 0);
+		_gl.enableVertexAttribArray(aPOSITION);
+		_gl.disableVertexAttribArray(aNORMAL);
+
+		_gl.drawArrays(_gl.TRIANGLES,0,6);
+	}
+};
+
+// -------------------
+//
+// Shape Tessalation into Geometry Data
+//
+// -------------------
+Geometry = function(shape, hole, shapeIndex, holeIndex) {
+	
+	var FACETYPE_TOP = 0;
+	var FACETYPE_BOTTOM = 1;
+	var FACETYPE_SIDE = 2;
+	var FACETYPE_DUBLICATE = 3;
+
+	var shapeTmp = shape;
+	shape = [];
+	for ( var i = 0; i < shapeTmp.length; i+=2 ) shape.push( new Vector2( shapeTmp[ i+0 ]/500.0, -(shapeTmp[ i+1 ]-2310)/500.0 ) );
+	var holeTmp = hole;
+	hole = [];
+	if ( holeTmp !== undefined )
+		for ( var i = 0; i < holeTmp.length; i+=2 ) hole.push( new Vector2( holeTmp[ i+0 ]/500.0, -(holeTmp[ i+1 ]-2310)/500.0 ) );
+
+	var shrinkContour = shrink(shape, hole, 0.1);
+
+	var geo_pos = [];
+	var geo_idx = [];
+	var index = 0;
+	index = addFaces(FACETYPE_TOP, shrinkContour.shape, shrinkContour.hole, 0.6, index, geo_pos, geo_idx, shapeIndex, holeIndex, 0.0, 0.0, 1.0);
+	index = addFaces(FACETYPE_SIDE, shape, hole, 0.5, index, geo_pos, geo_idx, shapeIndex, holeIndex);
+	index = addFaces(FACETYPE_SIDE, shape, hole, -0.5, index, geo_pos, geo_idx, shapeIndex, holeIndex);
+	index = addFaces(FACETYPE_SIDE, shrinkContour.shape, shrinkContour.hole, -0.6, index, geo_pos, geo_idx, shapeIndex, holeIndex);
+	index = addFaces(FACETYPE_BOTTOM, shrinkContour.shape, shrinkContour.hole, -0.6, index, geo_pos, geo_idx, shapeIndex, holeIndex, 0.0, 0.0, -1.0);
+	
+	var geo_positions = new Float32Array(geo_idx.length*6);
+
+	index = 0;
+	for ( var j = 0; j < geo_idx.length; j+=3 ) {
+		// calc normal
+		var p1 = new Vector3(geo_pos[geo_idx[j+0]*6+0],geo_pos[geo_idx[j+0]*6+1],geo_pos[geo_idx[j+0]*6+2]);
+		var p2 = new Vector3(geo_pos[geo_idx[j+1]*6+0],geo_pos[geo_idx[j+1]*6+1],geo_pos[geo_idx[j+1]*6+2]);
+		var p3 = new Vector3(geo_pos[geo_idx[j+2]*6+0],geo_pos[geo_idx[j+2]*6+1],geo_pos[geo_idx[j+2]*6+2]);
+
+		var e1 = (new Vector3()).subVectors(p2,p1);
+		var e2 = (new Vector3()).subVectors(p3,p1);
+
+		var n = (new Vector3()).crossVectors(e1,e2).normalize();
+		
+		geo_positions[index++] = p1.x;
+		geo_positions[index++] = p1.y;
+		geo_positions[index++] = p1.z;
+		geo_positions[index++] = n.x;
+		geo_positions[index++] = n.y;
+		geo_positions[index++] = n.z;
+		
+		geo_positions[index++] = p2.x;
+		geo_positions[index++] = p2.y;
+		geo_positions[index++] = p2.z;
+		geo_positions[index++] = n.x;
+		geo_positions[index++] = n.y;
+		geo_positions[index++] = n.z;
+
+		geo_positions[index++] = p3.x;
+		geo_positions[index++] = p3.y;
+		geo_positions[index++] = p3.z;
+		geo_positions[index++] = n.x;
+		geo_positions[index++] = n.y;
+		geo_positions[index++] = n.z;
+	}
+	this.buffer_position = _gl.createBuffer();
+	_gl.bindBuffer( _gl.ARRAY_BUFFER, this.buffer_position );
+	_gl.bufferData( _gl.ARRAY_BUFFER, geo_positions, _gl.STATIC_DRAW );
+	_gl.vertexAttribPointer(aPOSITION, 3, _gl.FLOAT, false, 6*4, 0);
+	
+	this.size = geo_idx.length;
+
+	function addFaces(facetype, shape, hole, z, last_idx, geo_pos, geo_idx, shapeIndex, holeIndex, nx, ny, nz) {
+
+		if ( facetype == FACETYPE_BOTTOM ) {
+			
+			var points = shape.concat(hole);
+
+			var new_idx = geo_pos.length/6;
+
+			for ( var i = 0; i < points.length;i++ ) {
+				geo_pos.push(points[i].x, points[i].y, z);
+				geo_pos.push(nx,ny,nz);
+			}
+			
+			var faces = triangulate(shape, hole, shapeIndex, holeIndex);
+			for ( var i = 0; i < faces.length; i++ ) geo_idx.push(faces[i][2] + new_idx, faces[i][1] + new_idx, faces[i][0] + new_idx);
+
+			return new_idx;			
+		} else if ( facetype == FACETYPE_TOP ) {
+
+			var points = shape.concat(hole);
+
+			var new_idx = geo_pos.length/6;
+
+			for ( var i = 0; i < points.length;i++ ) {
+				geo_pos.push(points[i].x, points[i].y, z);
+				geo_pos.push(nx,ny,nz);
+			}
+
+			var faces = triangulate(shape, hole, shapeIndex, holeIndex);
+			for ( var i = 0; i < faces.length; i++ ) geo_idx.push(faces[i][0] + new_idx, faces[i][1] + new_idx, faces[i][2] + new_idx);
+			return new_idx;
+		} /*else if ( facetype == FACETYPE_DUBLICATE ) {
+			var new_idx = geo_pos.length/6;
+			for ( var i = 0; i < (shape.length+hole.length);i++ ) {
+				geo_pos.push(geo_pos[last_idx*6+i*6+0], geo_pos[last_idx*6+i*6+1], geo_pos[last_idx*6+i*6+2]);
+				geo_pos.push(undefined,undefined,undefined);
+			}
+			return new_idx;
+		} */else if ( facetype == FACETYPE_SIDE ) {
+			var points = shape.concat(hole);
+
+			var new_idx = geo_pos.length/6;
+
+			for ( var i = 0; i < points.length;i++ ) {
+				geo_pos.push(points[i].x, points[i].y, z);
+				geo_pos.push(undefined,undefined,undefined);
+			}
+			
+			for ( var i = 0; i < shape.length; i++ ) {
+
+				var j = i+last_idx, k = i+new_idx, l = i+new_idx+1;
+
+				if ( i >= shape.length-1 ) l = new_idx;
+
+				geo_idx.push(l,k,j);
+
+				j = i+new_idx+1;
+				k = i+last_idx+1;
+				l = i+last_idx;
+				if ( i >= shape.length-1 ) {
+					j = new_idx;
+					k = last_idx;
+				}
+
+				geo_idx.push(l,k,j);
+			}
+			
+			for ( var i = 0; i < hole.length; i++ ) {
+
+				var j = i+last_idx, k = i+new_idx, l = i+new_idx+1;
+
+				if ( i >= hole.length-1 ) l = new_idx;
+
+				geo_idx.push(l+shape.length,k+shape.length,j+shape.length);
+
+				j = i+new_idx+1;
+				k = i+last_idx+1;
+				l = i+last_idx;
+				if ( i >= hole.length-1 ) {
+					j = new_idx;
+					k = last_idx;
+				}
+
+				geo_idx.push(l+shape.length,k+shape.length,j+shape.length);
+			}
+			
+			return new_idx;			
+		}
+	}
+	
+	function shrink(shape, hole, size) {
+
+		var shapeShrink = [];
+		for ( var i = 0, il = shape.length, j = il - 1, k = i + 1; i < il; i ++, j ++, k ++ ) {
+
+			if ( j === il ) j = 0;
+			if ( k === il ) k = 0;
+
+			shapeShrink.push(getBevelVec( shape[ i ], shape[ j ], shape[ k ] ).clone().multiplyScalar( -size ).add( shape[i] ));
+		}
+
+		var holeExpand = [];
+		for ( i = 0, il = hole.length, j = il - 1, k = i + 1; i < il; i ++, j ++, k ++ ) {
+
+			if ( j === il ) j = 0;
+			if ( k === il ) k = 0;
+
+			holeExpand.push(getBevelVec( hole[ i ], hole[ j ], hole[ k ] ).clone().multiplyScalar( -size ).add( hole[i] ));
+		}
+		
+		return { shape: shapeShrink, hole: holeExpand };
+	}
+
+	function getBevelVec( inPt, inPrev, inNext ) {
+
+		var v_trans_x, v_trans_y, shrink_by = 1;
+		var v_prev_x = inPt.x - inPrev.x, v_prev_y = inPt.y - inPrev.y;
+		var v_next_x = inNext.x - inPt.x, v_next_y = inNext.y - inPt.y;
+		var v_prev_lensq = ( v_prev_x * v_prev_x + v_prev_y * v_prev_y );
+
+		var collinear0 = ( v_prev_x * v_next_y - v_prev_y * v_next_x );
+
+		if ( Math.abs( collinear0 ) > Number.EPSILON ) {
+
+			var v_prev_len = Math.sqrt( v_prev_lensq );
+			var v_next_len = Math.sqrt( v_next_x * v_next_x + v_next_y * v_next_y );
+			var ptPrevShift_x = ( inPrev.x - v_prev_y / v_prev_len );
+			var ptPrevShift_y = ( inPrev.y + v_prev_x / v_prev_len );
+			var ptNextShift_x = ( inNext.x - v_next_y / v_next_len );
+			var ptNextShift_y = ( inNext.y + v_next_x / v_next_len );
+			var sf = (  ( ptNextShift_x - ptPrevShift_x ) * v_next_y -
+						( ptNextShift_y - ptPrevShift_y ) * v_next_x    ) /
+					  ( v_prev_x * v_next_y - v_prev_y * v_next_x );
+			v_trans_x = ( ptPrevShift_x + v_prev_x * sf - inPt.x );
+			v_trans_y = ( ptPrevShift_y + v_prev_y * sf - inPt.y );
+			var v_trans_lensq = ( v_trans_x * v_trans_x + v_trans_y * v_trans_y );
+			if ( v_trans_lensq <= 2 ) {
+				return	new Vector2( v_trans_x, v_trans_y );
+			} else {
+				shrink_by = Math.sqrt( v_trans_lensq / 2 );
+			}
+		} else {
+			var direction_eq = false;
+			if ( v_prev_x > Number.EPSILON ) {
+				if ( v_next_x > Number.EPSILON ) {
+					direction_eq = true;
+				}
+			} else {
+				if ( v_prev_x < - Number.EPSILON ) {
+					if ( v_next_x < - Number.EPSILON ) {
+						direction_eq = true;
+					}
+				} else {
+					if ( Math.sign( v_prev_y ) === Math.sign( v_next_y ) ) {
+						direction_eq = true;
+					}
+				}
+			}
+
+			if ( direction_eq ) {
+				v_trans_x = - v_prev_y;
+				v_trans_y =  v_prev_x;
+				shrink_by = Math.sqrt( v_prev_lensq );
+			} else {
+				v_trans_x = v_prev_x;
+				v_trans_y = v_prev_y;
+				shrink_by = Math.sqrt( v_prev_lensq / 2 );
+			}
+		}
+
+		return	new Vector2( v_trans_x / shrink_by, v_trans_y / shrink_by );
+	}
+	
+	function area( contour ) {
+
+		var n = contour.length;
+		var a = 0.0;
+
+		for ( var p = n - 1, q = 0; q < n; p = q ++ ) {
+
+			a += contour[ p ].x * contour[ q ].y - contour[ q ].x * contour[ p ].y;
+
+		}
+		return a * 0.5;
+	};
+
+	function snip( contour, u, v, w, n, verts ) {
+
+		var p;
+		var ax, ay, bx, by;
+		var cx, cy, px, py;
+
+		ax = contour[ verts[ u ] ].x;
+		ay = contour[ verts[ u ] ].y;
+
+		bx = contour[ verts[ v ] ].x;
+		by = contour[ verts[ v ] ].y;
+
+		cx = contour[ verts[ w ] ].x;
+		cy = contour[ verts[ w ] ].y;
+
+		if ( Number.EPSILON > ( ( ( bx - ax ) * ( cy - ay ) ) - ( ( by - ay ) * ( cx - ax ) ) ) ) return false;
+
+		var aX, aY, bX, bY, cX, cY;
+		var apx, apy, bpx, bpy, cpx, cpy;
+		var cCROSSap, bCROSScp, aCROSSbp;
+
+		aX = cx - bx;  aY = cy - by;
+		bX = ax - cx;  bY = ay - cy;
+		cX = bx - ax;  cY = by - ay;
+
+		for ( p = 0; p < n; p ++ ) {
+
+			px = contour[ verts[ p ] ].x;
+			py = contour[ verts[ p ] ].y;
+
+			if ( ( ( px === ax ) && ( py === ay ) ) ||
+				 ( ( px === bx ) && ( py === by ) ) ||
+				 ( ( px === cx ) && ( py === cy ) ) )	continue;
+
+			apx = px - ax;  apy = py - ay;
+			bpx = px - bx;  bpy = py - by;
+			cpx = px - cx;  cpy = py - cy;
+
+			// see if p is inside triangle abc
+
+			aCROSSbp = aX * bpy - aY * bpx;
+			cCROSSap = cX * apy - cY * apx;
+			bCROSScp = bX * cpy - bY * cpx;
+
+			if ( ( aCROSSbp >= - Number.EPSILON ) && ( bCROSScp >= - Number.EPSILON ) && ( cCROSSap >= - Number.EPSILON ) ) return false;
+
+		}
+
+		return true;
+	}
+
+	function triangulate(shape, hole, shapeIndex, holeIndex) {
+		
+		var pointIndex = {};
+		for ( var i = 0; i < shape.length; i++ ) pointIndex[(shape[i].x + ":" + shape[i].y)] = i;
+		for ( var i = 0; i < hole.length; i++ ) pointIndex[(hole[i].x + ":" + hole[i].y)] = i + shape.length;
+		
+		var contour = [];
+
+		if ( hole.length > 0 ) {			
+			contour = shape.slice( 0, shapeIndex + 1 ).concat( hole.slice( holeIndex ) ).concat( hole.slice( 0, holeIndex + 1 ) ).concat( shape.slice( shapeIndex ) );
+		}else {
+			contour = shape.slice(0);
+		}
+		
+		var nv = contour.length;
+		var u,v,w;
+		var verts = [];
+		var result = [];
+
+		if ( area( contour ) > 0.0 ) {
+			for ( v = 0; v < nv; v ++ ) verts[ v ] = v;
+		} else {
+			for ( v = 0; v < nv; v ++ ) verts[ v ] = ( nv - 1 ) - v;
+		}
+
+		var count = 2 * nv;
+
+		for ( v = nv - 1; nv > 2; ) {
+
+			if ( ( count -- ) <= 0 ) {
+				console.warn( 'Unable to triangulate polygon' );
+				return result;
+			}
+
+			u = v;  	if ( nv <= u ) u = 0;
+			v = u + 1;  if ( nv <= v ) v = 0;
+			w = v + 1;  if ( nv <= w ) w = 0;
+
+
+			if ( snip( contour, u, v, w, nv, verts ) ) {
+
+				var a, b, c, s, t;
+
+				a = pointIndex[(contour[verts[ u ]].x + ":" + contour[verts[ u ]].y)];
+				b = pointIndex[(contour[verts[ v ]].x + ":" + contour[verts[ v ]].y)];
+				c = pointIndex[(contour[verts[ w ]].x + ":" + contour[verts[ w ]].y)];
+
+				result.push( [ a, b, c ] );
+
+				for ( s = v, t = v + 1; t < nv; s ++, t ++ ) verts[ s ] = verts[ t ];
+
+				nv --;
+
+				count = 2 * nv;
+			}
+		}
+		
+		return result;
+	}
+}
+
+Geometry.prototype = {
+	constructor: Geometry,
+	
+	draw: function(prg) {
+		
+		_gl.bindBuffer( _gl.ARRAY_BUFFER, this.buffer_position );
+		_gl.vertexAttribPointer(aPOSITION, 3, _gl.FLOAT, false, 6*4, 0);
+		_gl.vertexAttribPointer(aNORMAL, 3, _gl.FLOAT, false, 6*4, 3*4);
+		_gl.enableVertexAttribArray(aPOSITION);
+		_gl.enableVertexAttribArray(aNORMAL);
+
+		_gl.uniform4f(prg.uColor, 0.3294,0.2902,0.9765,1.0);
+		var l = new Vector3(-1.2,0.6,-0.3);
+		l.normalize();
+		_gl.uniform3f(prg.uLight, l.x,l.y,l.z);
+		
+		_gl.drawArrays(_gl.TRIANGLES,0,this.size);
+	},
+	/*
+	drawWireframe: function() {
+		_gl.bindBuffer( _gl.ARRAY_BUFFER, this.buffer_position );
+		_gl.vertexAttribPointer(aPOSITION, 3, _gl.FLOAT, false, 6*4, 0);
+		_gl.vertexAttribPointer(aNORMAL, 3, _gl.FLOAT, false, 6*4, 3*4);
+		_gl.enableVertexAttribArray(aPOSITION);
+		_gl.enableVertexAttribArray(aNORMAL);
+
+		_gl.bindBuffer( _gl.ELEMENT_ARRAY_BUFFER, this.buffer_index );
+
+		_gl.uniform4f(program.uColor, 0.3294,0.2902,0.9765,1.0);
+		_gl.uniform3f(program.uLight, 0.0,0.0,1.0);
+
+		for(var i = 0; i < this.size; i += 3) _gl.drawElements(_gl.LINE_LOOP, 3, _gl.UNSIGNED_SHORT, i*2);
+	}*/
+};
+
+// -------------------
+//
+// Initialize webgl
+//
+// -------------------
+var _canvas;
+var _gl;
+var _projectionMatrix = new Matrix4();
+var _viewMatrix = new Matrix4();
+
+try {
+	var attributes = {
+		alpha: false,
+		depth: true,
+		stencil: false,
+		antialias: false,
+		premultipliedAlpha: false,
+		preserveDrawingBuffer: false
+	};
+	
+	_canvas = document.getElementById("view");
+	
+	_gl = _canvas.getContext( 'webgl', attributes ) || _canvas.getContext( 'experimental-webgl', attributes );
+	
+	// handle error
+	if ( _gl === null ) {
+		if ( _canvas.getContext( 'webgl' ) !== null ) {
+			throw 'Error creating WebGL context with your selected attributes.';
+		} else {
+			throw 'Error creating WebGL context.';
+		}
+	}
+
+} catch ( error ) {
+	console.error( 'init error: ' + error );
+}
+
+// -------------------
+//
+// Camera
+// 
+// -------------------
+
+window.addEventListener( 'resize', resize, false );
+
+var cam_Up = new Vector3( 0, 1, 0 );
+var cam_Position = new Vector3(0.573,5.441,5.264);
+
+var cam_FOV = 90.0;
+var cam_Aspect = 1.0;
+var cam_Near = 0.1;
+var cam_Far = 2000.0;
+
+var _mvp = new Matrix4();
+
+function resize() {
+	_canvas.width = window.innerWidth;
+	_canvas.height = window.innerHeight;
+
+	console.log("-> "+_canvas.width + " " + _canvas.height);
+
+	_gl.viewport(0,0,_canvas.width,_canvas.height);
+	
+	cam_Aspect = _canvas.width / _canvas.height;
+
+	_projectionMatrix.makePerspectiveRH( cam_FOV, cam_Aspect, cam_Near, cam_Far );
+}
+
+resize();
+
+// -------------------
+//
+// Control
+// 
+// -------------------
+
+// https://developer.mozilla.org/en-US/docs/Web/API/MouseEvent.button
+var MOUSEBUTTON = { LEFT: 0, MIDDLE: 1, RIGHT: 2 };
+
+var STATE = { NONE : - 1, ROTATE : 0, DOLLY : 1, PAN : 2, TOUCH_ROTATE : 3, TOUCH_DOLLY : 4, TOUCH_PAN : 5 };
+
+var state = STATE.NONE;
+
+var rotateStart = new Vector2();
+var rotateEnd = new Vector2();
+var rotateDelta = new Vector2();
+
+var panStart = new Vector2();
+var panEnd = new Vector2();
+var panDelta = new Vector2();
+
+var dollyStart = new Vector2();
+var dollyEnd = new Vector2();
+var dollyDelta = new Vector2();
+
+var scale = 1.0;
+var target = new Vector3(0,3,0);
+var panOffset = new Vector3();
+
+var phiDelta = 0;
+var thetaDelta = 0;
+
+// Current position in spherical coordinate system.
+var theta;
+var phi;
+
+_viewMatrix.makeLookAtRH(cam_Position, target, cam_Up);
+
+
+var updateCamera = function() {
+
+	var offset = new Vector3();
+
+	// so camera.up is the orbit axis
+	var quat = new Quaternion().setFromUnitVectors( cam_Up, new Vector3( 0, 1, 0 ) );
+	var quatInverse = quat.clone().inverse();
+
+	return function () {
+
+		offset.copy( cam_Position ).sub( this.target );
+
+		// rotate offset to "y-axis-is-up" space
+		offset.applyQuaternion( quat );
+
+		// angle from z-axis around y-axis
+
+		theta = Math.atan2( offset.x, offset.z );
+
+		// angle from y-axis
+
+		phi = Math.atan2( Math.sqrt( offset.x * offset.x + offset.z * offset.z ), offset.y );
+
+		theta += thetaDelta;
+		phi += phiDelta;
+
+		// restrict theta to be between desired limits
+		theta = Math.max( -Infinity, Math.min( Infinity, theta ) );
+
+		// restrict phi to be between desired limits
+		phi = Math.max( 0, Math.min( Math.PI/2.0, phi ) );
+
+		// restrict phi to be betwee EPS and PI-EPS
+		phi = Math.max( 0.000001, Math.min( Math.PI - 0.000001, phi ) );
+
+		var radius = offset.length() * scale;
+
+		// restrict radius to be between desired limits
+		radius = Math.max( 0, Math.min( Infinity, radius ) );
+
+		// move target to panned location
+		target.add( panOffset );
+
+		offset.x = radius * Math.sin( phi ) * Math.sin( theta );
+		offset.y = radius * Math.cos( phi );
+		offset.z = radius * Math.sin( phi ) * Math.cos( theta );
+
+		// rotate offset back to "camera-up-vector-is-up" space
+		offset.applyQuaternion( quatInverse );
+
+		cam_Position.copy( target ).add( offset );
+		
+		_viewMatrix.makeLookAtRH( cam_Position, target, cam_Up );
+
+		thetaDelta = 0;
+		phiDelta = 0;
+		scale = 1;
+		panOffset.set( 0, 0, 0 );
+
+	};
+
+}();
+
+function onMouseDown( event ) {
+
+	event.preventDefault();
+
+	// Orbit
+	if ( event.button === MOUSEBUTTON.LEFT ) {
+
+		state = STATE.ROTATE;
+		rotateStart.set( event.clientX, event.clientY );
+	// Zoom
+	} else if ( event.button === MOUSEBUTTON.ZOOM ) {
+
+		state = STATE.DOLLY;
+		dollyStart.set( event.clientX, event.clientY );
+	}
+
+	if ( state !== STATE.NONE ) {
+		document.addEventListener( 'mousemove', onMouseMove, false );
+		document.addEventListener( 'mouseup', onMouseUp, false );
+	}
+}
+
+function onMouseMove( event ) {
+
+	event.preventDefault();
+
+	if ( state === STATE.ROTATE ) {
+
+		rotateEnd.set( event.clientX, event.clientY );
+		rotateDelta.subVectors( rotateEnd, rotateStart );
+
+		// rotating across whole screen goes 360 degrees around
+		thetaDelta -= 2 * Math.PI * rotateDelta.x / _canvas.clientWidth;
+		// rotating up and down along whole screen attempts to go 360, but limited to 180
+		phiDelta -= 2 * Math.PI * rotateDelta.y / _canvas.clientHeight;
+
+		rotateStart.copy( rotateEnd );
+
+	} else if ( state === STATE.DOLLY ) {
+
+		dollyEnd.set( event.clientX, event.clientY );
+		dollyDelta.subVectors( dollyEnd, dollyStart );
+
+		if ( dollyDelta.y > 0 ) {
+			scale /= 0.95;
+		} else if ( dollyDelta.y < 0 ) {
+			scale *= 0.95;
+		}
+
+		dollyStart.copy( dollyEnd );
+
+	}
+
+	if ( state !== STATE.NONE ) updateCamera();
+}
+
+function onMouseUp( ) {
+
+	document.removeEventListener( 'mousemove', onMouseMove, false );
+	document.removeEventListener( 'mouseup', onMouseUp, false );
+	state = STATE.NONE;
+
+}
+
+function onMouseWheel( event ) {
+
+	if ( state !== STATE.NONE ) return;
+
+	event.preventDefault();
+	event.stopPropagation();
+
+	var delta = 0;
+
+	if ( event.wheelDelta !== undefined ) {
+		// WebKit / Opera / Explorer 9
+		delta = event.wheelDelta;
+	} else if ( event.detail !== undefined ) {
+		// Firefox
+		delta = - event.detail;
+	}
+
+	if ( delta > 0 ) {
+		scale *= 0.95;
+	} else if ( delta < 0 ) {
+		scale /= 0.95;
+	}
+
+	updateCamera();
+}
+
+_canvas.addEventListener( 'mousedown', onMouseDown, false );
+_canvas.addEventListener( 'mousewheel', onMouseWheel, false );
+_canvas.addEventListener( 'MozMousePixelScroll', onMouseWheel, false );
+
+// -------------------
+//
+// Shaders
+//
+// -------------------
+
+var aPOSITION = 0;
+var aNORMAL = 1;
+
+var vtxShaderSrc = [
+	"uniform highp mat4 Mvpm;\n",
+	"attribute highp vec4 aPosition;\n",
+	"attribute highp vec3 aNormal;\n",
+	"varying highp vec3 oNormal;\n",
+	"void main()\n",
+	"{\n",
+	"   gl_Position = Mvpm * aPosition;\n",
+	"   oNormal = aNormal;\n",
+	"}\n"].join('');
+
+var frgShaderSrc = [
+	"precision highp float;\n",
+	"uniform highp vec4 Color;\n",
+	"uniform highp vec3 LightDirection;\n",
+	"varying highp vec3 oNormal;\n",
+	"void main()\n",
+	"{\n",
+	"	float NdotL = dot( oNormal, vec3(0.0,1.0,0.0) );\n",
+	"	float influence = NdotL * 0.5 + 0.5;\n",
+	"	vec3 diffuse = mix( vec3(0.0,0.0,0.3), vec3(0.5,0.3,1.0), influence );\n",
+	"	float dotValue = min(max(dot(oNormal, LightDirection), 0.0)+0.4,1.0);\n",
+	"   gl_FragColor = vec4(Color.x*dotValue,Color.y*dotValue,Color.z*dotValue,1.0)+vec4(diffuse,0.0);\n",
+	"}\n"].join('');
+
+var program = _gl.createProgram();
+program.vtxShader = compileShader(false,vtxShaderSrc);
+program.frgShader = compileShader(true,frgShaderSrc);
+_gl.attachShader(program, program.vtxShader);
+_gl.attachShader(program, program.frgShader);
+
+_gl.bindAttribLocation(program, aPOSITION, "aPosition");
+_gl.bindAttribLocation(program, aNORMAL, "aNormal");
+
+_gl.linkProgram(program);
+if (!_gl.getProgramParameter(program, _gl.LINK_STATUS)) alert("Could not initialise shaders");
+_gl.useProgram(program);
+
+_gl.enableVertexAttribArray(aPOSITION);
+
+program.uMvp = _gl.getUniformLocation(program, "Mvpm");
+program.uColor = _gl.getUniformLocation(program, "Color");
+program.uLight = _gl.getUniformLocation(program, "LightDirection");
+
+for ( var i = 0; i < 8; i++ )
+{
+	var uTex = _gl.getUniformLocation(program, "Texture"+i);
+	if ( uTex >= 0 ) _gl.uniform1i(uTex, i);
+}
+
+// ---------
+
+var vtxShaderSrc2 = [
+	"uniform highp mat4 Mvpm;\n",
+	"attribute highp vec4 aPosition;\n",
+	"void main()\n",
+	"{\n",
+	"   gl_Position = Mvpm * aPosition;\n",
+	"}\n"].join('');
+
+var frgShaderSrc2 = [
+	"precision highp float;\n",
+	"void main()\n",
+	"{\n",
+	"   gl_FragColor = vec4(0.0,0.0,0.0,0.2);\n",
+	"}\n"].join('');
+
+var program2 = _gl.createProgram();
+program2.vtxShader = compileShader(false,vtxShaderSrc2);
+program2.frgShader = compileShader(true,frgShaderSrc2);
+_gl.attachShader(program2, program2.vtxShader);
+_gl.attachShader(program2, program2.frgShader);
+
+_gl.bindAttribLocation(program2, aPOSITION, "aPosition");
+
+_gl.linkProgram(program2);
+if (!_gl.getProgramParameter(program2, _gl.LINK_STATUS)) alert("Could not initialise shaders");
+_gl.useProgram(program2);
+
+_gl.enableVertexAttribArray(aPOSITION);
+
+program2.uMvp = _gl.getUniformLocation(program2, "Mvpm");
+
+for ( var i = 0; i < 8; i++ )
+{
+	var uTex = _gl.getUniformLocation(program2, "Texture"+i);
+	if ( uTex >= 0 ) _gl.uniform1i(uTex, i);
+}
+
+// --------
+var vtxShaderSrc3 = [
+	"uniform highp mat4 Mvpm;\n",
+	"attribute highp vec4 aPosition;\n",
+	"attribute highp vec3 aNormal;\n",
+	"varying highp vec3 oNormal;\n",
+	"varying highp vec4 oPos;\n",
+	"void main()\n",
+	"{\n",
+	"   gl_Position = Mvpm * aPosition;\n",
+	"   oNormal = aNormal;\n",
+	"   oPos = aPosition;\n",
+	"}\n"].join('');
+
+var frgShaderSrc3 = [
+	"precision highp float;\n",
+	"uniform highp vec4 Color;\n",
+	"uniform highp vec3 LightDirection;\n",
+	"varying highp vec3 oNormal;\n",
+	"varying highp vec4 oPos;\n",
+	"void main()\n",
+	"{\n",
+	"	float NdotL = dot( oNormal, vec3(0.0,1.0,0.0) );\n",
+	"	float influence = NdotL * 0.5 + 0.5;\n",
+	"	vec3 diffuse = mix( vec3(0.0,0.0,0.3), vec3(0.5,0.3,1.0), influence );\n",
+	"	float dotValue = min(max(dot(oNormal, LightDirection), 0.0)+0.4,1.0);\n",
+	"   vec4 c = vec4(Color.x*dotValue,Color.y*dotValue,Color.z*dotValue,1.0)+vec4(diffuse,0.0);\n",
+	"   gl_FragColor = vec4(c.x*(1.0-oPos.y/5.0),c.y*(1.0-oPos.y/5.0),c.z*(1.0-oPos.y/5.0),1.0);\n",
+	"}\n"].join('');
+
+var program3 = _gl.createProgram();
+program3.vtxShader = compileShader(false,vtxShaderSrc3);
+program3.frgShader = compileShader(true,frgShaderSrc3);
+_gl.attachShader(program3, program3.vtxShader);
+_gl.attachShader(program3, program3.frgShader);
+
+_gl.bindAttribLocation(program3, aPOSITION, "aPosition");
+_gl.bindAttribLocation(program3, aNORMAL, "aNormal");
+
+_gl.linkProgram(program3);
+if (!_gl.getProgramParameter(program3, _gl.LINK_STATUS)) alert("Could not initialise shaders");
+_gl.useProgram(program3);
+
+_gl.enableVertexAttribArray(aPOSITION);
+
+program3.uMvp = _gl.getUniformLocation(program3, "Mvpm");
+program3.uColor = _gl.getUniformLocation(program3, "Color");
+program3.uLight = _gl.getUniformLocation(program3, "LightDirection");
+
+for ( var i = 0; i < 8; i++ )
+{
+	var uTex = _gl.getUniformLocation(program3, "Texture"+i);
+	if ( uTex >= 0 ) _gl.uniform1i(uTex, i);
+}
+	
+function compileShader(isFragment, source) {
+	var shader = _gl.createShader(isFragment?_gl.FRAGMENT_SHADER:_gl.VERTEX_SHADER);
+	_gl.shaderSource(shader, source);
+	_gl.compileShader(shader);
+	if (!_gl.getShaderParameter(shader, _gl.COMPILE_STATUS)) alert(_gl.getShaderInfoLog(shader));
+	return shader;
+}
+
+// -------------------
+// 
+// Geometry
+//
+// -------------------
+var geo1 = new Geometry([-510,-540,-060,-540,-060,-060,+420,-060,+660,+180,+660,+660,+420,+660,+420,+150,+180,+150,+180,+420,+420,+660,+420,+1140,+900,+1620,+1140,+1620,+1380,+1860,+1380,+2310,+1170,+2310,+1170,+2070,+930,+1830,+690,+1830,-030,+1110,-300,+1380,-090,+1620,+180,+1620,+180,+2070,-030,+2070,-030,+1830,-270,+1830,-510,+1590,-510,+1140,-270,+900,-030,+900,-030,+630,-510,+870,-750,+630,-270,+420,-270,-090,-510,-090]);
+
+var geo2 = new Geometry([-510,-540,-60,-540,-60,-60,+420,-60,+660,+180,+660,+390,+420,+630,+420,+1110,+720,+1410,+1170,+1620,+1620,+1620,+1620,+2070,+1410,+2070,+1410,+1830,+930,+1830,+420,+1590,-030,+1110,-150,+1110,-540,+1860,-540,+2070,-990,+2070,-990,+1860,-750,+1860,-270,+930,-270,+630,-750,+630,-750,+420,-270,+420,-270,-090,-510,-090],[+210,+510,+480,+240,+420,+180,+210,+180],6,0);
+
+var geo3 = new Geometry([-510,-540,-60,-540,-60,-60,+330,-60,+570,+180,+570,+390,+420,+540,+420,+1110,+690,+1380,+1620,+1380,+1620,+1830,+1410,+1830,+1410,+1590,+450,+1590,+210,+1350,-60,+1350,-300,+1590,-300,+2310,-750,+2310,-750,+2100,-510,+2100,-510,+1380,-270,+1140,-030,+1140,-030,+600,-240,+870,-750,+870,-750,+660,-510,+660,-270,+420,-270,-090,-510,-090],[+180,+420,+390,+240,+300,+150,+180,+150],6,0);
+
+var geo4 = new Geometry([-510,-300,-060,-300,-060,+180,+180,+180,+420,+420,+420,+1590,+570,+1740,+930,+1380,+1380,+1380,+1380,+1830,+1170,+1830,+1170,+1560,+660,+2070,+450,+2070,+210,+1830,+210,+1590,-60,+1800,-60,+2310,-510,+2310,-510,+2100,-270,+2100,-270,+1590,-030,+1350,-030,+1080,-300,+1350,-750,+1350,-750,+1140,-510,+1140,-270,+900,-270,+150,-510,+150]);
+
+var geo5 = new Geometry([-510,-60,-60,-60,-60,+420,+180,+420,+180,+1380,+660,+1380,+660,+1830,+450,+1830,+450,+1590,+180,+1590,+180,+2310,-270,+2310,-270,+2100,-030,+2100,-030,+1590,-270,+1590,-270,+1110,-510,+1110,-510,+900,-270,+900,-270,+390,-510,+390]);
+
+var geo6 = new Geometry([-600,-330,-150,-330,-150,+150,+090,+150,+330,+390,+330,+1110,+570,+1110,+570,+1350,+810,+1350,+810,+1560,+540,+1560,+810,+1830,+810,+2280,+360,+2280,+360,+2070,+630,+2070,+120,+1560,-360,+1560,-360,+1350,-120,+1110,-120,+840,-600,+840,-600,+630,-360,+630,-360,+120,-600,+120]);
+
+var plane = new Plane(10,10);
+
+var geoms = [geo1,geo2,geo3,geo4,geo5,geo6];
+var geoidx = 0;
+
+//animate
+setInterval(function() {
+	geoidx = (geoidx + 1) % geoms.length;
+},100);
+
+
+// -------------------
+// 
+// Renderer
+//
+// -------------------
+
+// State Init
+_gl.clearColor( 0, 0, 0, 1 );
+_gl.clearDepth( 1 );
+_gl.clearStencil( 0 );
+_gl.enable( _gl.DEPTH_TEST );
+_gl.depthFunc( _gl.LEQUAL );
+
+_gl.frontFace( _gl.CCW );
+_gl.cullFace( _gl.BACK );
+_gl.enable( _gl.CULL_FACE );
+
+_gl.enable( _gl.BLEND );
+//_gl.blendEquation( _gl.FUNC_ADD );
+_gl.blendFunc( _gl.SRC_ALPHA, _gl.ONE_MINUS_SRC_ALPHA );
+//_gl.blendFunc( _gl.ONE, _gl.ZERO );
+
+
+function render() {
+
+	requestAnimationFrame(render);
+
+	_gl.clearColor( 0, 0, 0, 1 );
+	_gl.clear( _gl.COLOR_BUFFER_BIT | _gl.DEPTH_BUFFER_BIT );
+	
+	//_gl.disable( _gl.BLEND );
+
+	_gl.enable( _gl.DEPTH_TEST );
+	_gl.depthMask( true );
+	_gl.colorMask( true, true, true, true );
+
+	_gl.cullFace( _gl.FRONT );
+
+	_gl.useProgram(program3);
+	var _modelMatrix = (new Matrix4).makeScale(1.0,-1.0,1.0);
+	var mv = new Matrix4();
+	mv.multiply( _viewMatrix, _modelMatrix  );
+	
+	_mvp.multiply( _projectionMatrix, mv ).transpose();
+	_gl.uniformMatrix4fv( program3.uMvp, false, _mvp.elements );	
+
+	geoms[geoidx].draw(program3);
+	
+	_gl.useProgram(program2);
+
+	_mvp.multiply( _projectionMatrix, mv ).transpose();
+	_gl.uniformMatrix4fv( program2.uMvp, false, _mvp.elements );	
+
+	plane.draw(program2);
+
+	_gl.useProgram(program);
+
+	_gl.cullFace( _gl.BACK );
+	
+	_modelMatrix = (new Matrix4).makeScale(1.0,1.0,1.0);
+	mv.multiply( _viewMatrix, _modelMatrix  );
+	
+	_mvp.multiply( _projectionMatrix, mv ).transpose();
+	_gl.uniformMatrix4fv( program.uMvp, false, _mvp.elements );	
+	
+	geoms[geoidx].draw(program);
+
+}
+
+render();
+
+</script>
+</body>
